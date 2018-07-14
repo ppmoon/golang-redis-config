@@ -10,34 +10,55 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"strings"
 )
-
-func init() {
-	readEnv()
+type grconfig struct {
+	filePath string
+	addr string
+	password string
+	db int
+}
+func (g *grconfig) init() {
+	g.readEnv()
 }
 //实例化一个GRC
-func NewGrc(file string){
-	WatchFile(file)
-}
-//链接redis的实例
-func RedisClient() *redis.Client {
-	return redis.NewClient(
-		&redis.Options{
-			Addr:"localhost:6379",
-			Password:"",
-			DB:0,
-		},
-	)
+func NewGrc(file string,addr string,password string,db int) *grconfig {
+	return &grconfig{
+		filePath:file,
+		addr:addr,
+		password:password,
+		db:db,
+	}
 }
 //save k-v config to redis
-func saveConfig(key string,value string)  {
-	client := RedisClient()
+func (g *grconfig) saveConfig(key string,value string)  {
+	client := redis.NewClient(
+		&redis.Options{
+			Addr:g.addr,
+			Password:g.password,
+			DB:g.db,
+		},
+	)
 	err := client.Set(key, value, 0).Err()
 	if err != nil {
 		panic(err)
 	}
 }
+//读取配置字段
+func (g *grconfig) GetItem(key string) string{
+	client := redis.NewClient(
+		&redis.Options{
+			Addr:g.addr,
+			Password:g.password,
+			DB:g.db,
+		},
+	)
+	val, err := client.Get(key).Result()
+	if err != nil {
+		panic(err)
+	}
+	return val
+}
 //逐行读取文件
-func readEnv() {
+func (g *grconfig) readEnv() {
 	file,err := os.Open(".env")
 	if err != nil {
 		log.Fatal(err)
@@ -54,7 +75,7 @@ func readEnv() {
 		}
 
 		k,v := parse(string(line))
-		saveConfig(k,v)
+		g.saveConfig(k,v)
 	}
 }
 //解析env文件
@@ -66,7 +87,7 @@ func parse(line string) (string,string) {
 	return result[0],result[1]
 }
 //监听文件变化
-func WatchFile(filePath string) {
+func (g *grconfig) WatchFile() {
 	watcher,err := fsnotify.NewWatcher()
 	if err != nil {
 		fmt.Println("ERROR",err)
@@ -78,14 +99,14 @@ func WatchFile(filePath string) {
 			select {
 			case event := <-watcher.Events:
 				fmt.Printf("EVENT! %#v\n", event)
-				readEnv()
+				g.readEnv()
 				// watch for errors
 			case err := <-watcher.Errors:
 				fmt.Println("ERROR", err)
 			}
 		}
 	}()
-	if err := watcher.Add(filePath); err != nil {
+	if err := watcher.Add(g.filePath); err != nil {
 		fmt.Println("ERROR",err)
 	}
 	<- done
